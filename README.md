@@ -4,7 +4,7 @@ This repo provides all the necessary R codes to reproduce the analysis of the pa
 
 The repo is organized as follows:
 
-* **1.data**: the folder that would contain the dataset.
+* **1.data**: the folder that would contain the dataset. Only the codebook of the dataset is provided in this folder.
 * **2.scripts**: contains all Rmarkdown and .html files to reproduce the analysis.
   * **1.data_wrangling** would contain the script to clean and merge the raw datasets on patients' health status and environmental exposure.
   * **2.eda** contains the script to carry out an exploratory data analysis.
