@@ -1,5 +1,8 @@
 # Individual and Environmental Risk Factors for COVID-19 Mortality in Elderly
 
+![plot](./3.outputs/1.figures/0.eda/graph_density_pollution_exposure.pdf)
+
+
 This repo provides all the necessary R codes to reproduce the analysis of the paper entitled "Individual and Environmental Risk Factors for COVID-19 Mortality in Elderly". Due to statistical confidentiality, the data used in the project could not be shared. Should you have any questions or find coding errors, please do not hesistate to reach me at leo.zabrocki[at]psemail.eu.
 
 **The repo is organized as follows:**
