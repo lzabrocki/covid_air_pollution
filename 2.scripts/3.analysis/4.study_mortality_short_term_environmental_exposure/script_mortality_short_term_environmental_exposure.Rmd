@@ -1,0 +1,240 @@
+---
+title: "COVID-19 Mortality & Short-Term Exposure to Environmental Factors"
+description: |
+  Detailled Script.
+author:
+  - name: Léo Zabrocki 
+    url: https://www.parisschoolofeconomics.eu/
+    affiliation: Paris School of Economics
+    affiliation_url: https://www.parisschoolofeconomics.eu/
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    keep_md: true
+    toc: true
+    toc_depth: 2
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+# code chunk option
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  layout="l-body-outset",
+  dev = "CairoPNG",
+  dpi = 300
+)
+```
+
+In this document, we explore the relationship between short-term environmental factors exposure (averaged the 20 days before the PCR test) and COVID-19 mortality. Should you have any questions or find coding errors, please do not hesitate to reach me at **leo.zabrocki@psemail.eu**.
+
+# Required Packages and Loading Data
+
+To reproduce exactly the `script_mortality_short_term_environmental_exposure.html` document, you first need to have installed:
+
+* the [R](https://www.r-project.org/) programming language on your computer 
+* [RStudio](https://rstudio.com/), an integrated development environment for R, which will allow you to knit the `script_mortality_short_term_environmental_exposure.Rmd` file and interact with the R code chunks
+* the [R Markdown](https://rmarkdown.rstudio.com/) package
+* and the [Distill](https://rstudio.github.io/distill/) package which provides the template of this document. 
+
+Once everything is set up, we need to load the following packages:
+
+```{r}
+# load required packages
+library(rmarkdown) # for creating the R Markdown document
+library(knitr) # for creating the R Markdown document
+library(here) # for files paths organization
+library(tidyverse) # for data manipulation and visualization
+library(modelr) # provides easy pipeline modeling functions
+library(broom) # helps to tidy up model outputs
+library(lubridate) # for manipulating date variables
+library(Cairo) # for printing customed police of graphs
+```
+
+We also load our custom `ggplot2` theme for graphs:
+
+```{r}
+# load ggplot custom theme
+source(
+  here::here(
+    "2.scripts",
+    "4.custom_ggplot2_theme",
+    "script_custom_ggplot_theme.R"
+  )
+)
+```
+
+The theme is based on the fantastic [hrbrthemes](https://hrbrmstr.github.io/hrbrthemes/index.html) package. If you do not want to use this theme or are unable to install it because of fonts issues, you can use the `theme_mimimal()` included in the `ggplot2` package.
+
+We load the data we use in our analysis:
+
+```{r}
+data <-
+  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+```
+
+# Data Wrangling
+
+### Data Cleaning
+
+We select the relevant variables:
+
+```{r}
+data <- data %>%
+  mutate(month = lubridate::month(date_pcr_test) %>% as.factor(.)) %>%
+  dplyr::select(
+    city,
+    patient_id,
+    month,
+    covid:cancer,
+    no2_lag_20:wind_speed_lag_0,
+    uvi_lag_20:olive_lag_0
+  )
+```
+
+We keep patients that were COVID-positive:
+
+```{r}
+data <- data %>%
+  filter(covid == 1) %>%
+  dplyr::select(-covid)
+```
+
+We compute the average exposure for an environmental factor over 20 days before the PCR test:
+
+```{r}
+# compute average of short-term exposure
+data_short_term_exposure <- data %>%
+  select(patient_id, no2_lag_20:olive_lag_0) %>%
+  pivot_longer(
+    cols = c(no2_lag_20:olive_lag_0),
+    names_to = "exposure_lag",
+    values_to = "value"
+  ) %>%
+  mutate(
+    exposure = case_when(
+      str_detect(exposure_lag, "no2") ~ "NO2 (µg/m³)",
+      str_detect(exposure_lag, "o3") ~ "O3 (µg/m³)",
+      str_detect(exposure_lag, "pm10") ~ "PM10 (µg/m³)",
+      str_detect(exposure_lag, "pm2p5") ~ "PM2.5 (µg/m³)",
+      str_detect(exposure_lag, "so2") ~ "SO2 (µg/m³)",
+      str_detect(exposure_lag, "temperature") ~ "Average Temperature (°C)",
+      str_detect(exposure_lag, "humidity") ~ "Average Humidity (%)",
+      str_detect(exposure_lag, "wind") ~ "Wind Speed (m/s)",
+      str_detect(exposure_lag, "uvi") ~ "UV",
+      str_detect(exposure_lag, "birch") ~ "Birch Pollen (grains/m³)",
+      str_detect(exposure_lag, "grass") ~ "Grass Pollen (grains/m³)",
+      str_detect(exposure_lag, "olive") ~ "Olive Pollen (grains/m³)"
+    )
+  ) %>%
+  group_by(patient_id, exposure) %>%
+  summarise(mean_exposure = mean(value)) %>%
+  pivot_wider(names_from = exposure, values_from = mean_exposure)
+```
+
+We merge back these exposures with the inital data:
+
+```{r}
+data <- data %>%
+  select(city:cancer) %>%
+  left_join(., data_short_term_exposure, by = "patient_id")
+```
+
+# Logistic Regression Analysis
+
+We run our multivariate logistic regression model:
+
+```{r}
+data_regression_analysis <- data %>%
+  pivot_longer(
+    cols = c(`Average Humidity (%)`:`Wind Speed (m/s)`),
+    names_to = "exposure",
+    values_to = "exposure_value"
+  ) %>%
+  group_by(exposure) %>%
+  nest()
+
+data_regression_analysis <- data_regression_analysis %>%
+  mutate(
+    # model
+    model= map(
+      data,
+      ~ glm(
+        dead ~ exposure_value +
+          sex +
+          age +
+          bmi +
+          diabetes +
+          hbp +
+          copd +
+          cardiac_disease_infarction +
+          renal_failure +
+          cancer +
+          month +
+          city,
+        data = .
+      )
+    )
+  )
+
+# tidy regression ouputs
+data_regression_analysis <- data_regression_analysis %>%
+  select(-data) %>%
+  mutate(models_dfs = map(model, ~ broom::tidy(., conf.int = TRUE)))
+
+# unnest results and select coefficient
+data_regression_analysis <- data_regression_analysis %>%
+  unnest(models_dfs) %>%
+  dplyr::filter(term == "exposure_value")
+
+# exponentiate
+data_regression_analysis <- data_regression_analysis %>%
+  mutate_at(vars(estimate, conf.low, conf.high), ~ exp(.))
+```
+
+We graphically display point estimates and their associated 95% confidence intervals:
+
+```{r, fig.width=20, fig.height=10}
+# make the graph
+graph_logistic_all_cities <- data_regression_analysis %>%
+  filter(exposure != "Olive Pollen (grains/m³)") %>%
+  ggplot(., aes(
+    x = estimate,
+    y = fct_rev(exposure),
+    xmin = conf.low,
+    xmax = conf.high
+  )) +
+  geom_vline(xintercept = 1) +
+  geom_pointrange(size = 1.2, colour = "deepskyblue3") +
+  ylab("") + xlab("Odds of Dying from COVID-19") +
+  custom_theme +
+  theme(plot.margin = margin(1, 1, 1, -1, "cm"))
+
+
+# print the graph
+graph_logistic_all_cities
+
+# save graph
+ggsave(graph_logistic_all_cities, filename = here::here("3.outputs", "1.figures", "4.study_mortality_short_term_environmental_exposure", "graph_mortality_short_term_environmental_exposure.pdf"), 
+       width = 30, height = 20, units = "cm", device = cairo_pdf)
+```
+
+We display values of point estimates and their associated 95% confidence intervals in the table below:
+
+```{r}
+# print the table
+options(scipen = 100)
+
+data_regression_analysis %>%
+  filter(exposure != "Olive Pollen (grains/m³)") %>%
+  select(exposure, estimate, conf.low, conf.high) %>%
+  mutate_at(vars(estimate:conf.high), ~ round(., 2)) %>%
+  rename("Exposure" = exposure, "Point Estimate" = estimate, "Lower Bound 95% CI" = conf.low, "Upper Bound 95% CI" = conf.high) %>%
+  kable(align = c("l", rep("c", 3)))
+```

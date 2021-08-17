@@ -1,0 +1,209 @@
+---
+title: "Mortality & Comorbodities"
+description: |
+  Detailled Script.
+author:
+  - name: Léo Zabrocki 
+    url: https://www.parisschoolofeconomics.eu/
+    affiliation: Paris School of Economics
+    affiliation_url: https://www.parisschoolofeconomics.eu/
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    keep_md: true
+    toc: true
+    toc_depth: 2
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+# code chunk option
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  layout="l-body-outset",
+  dev = "CairoPNG",
+  dpi = 300
+)
+```
+
+
+This script explores the relationship between COVID mortality and comorbidities. Should you have any questions or find coding errors, please do not hesitate to reach me at **leo.zabrocki@psemail.eu**.
+
+# Required Packages and Loading Data
+
+To reproduce exactly the `script_mortality_comorbidities.html` document, you first need to have installed:
+
+* the [R](https://www.r-project.org/) programming language on your computer 
+* [RStudio](https://rstudio.com/), an integrated development environment for R, which will allow you to knit the `script_mortality_comorbidities.Rmd` file and interact with the R code chunks
+* the [R Markdown](https://rmarkdown.rstudio.com/) package
+* and the [Distill](https://rstudio.github.io/distill/) package which provides the template of this document. 
+
+Once everything is set up, we need to load the following packages:
+
+```{r}
+# load required packages
+library(rmarkdown) # for creating the R Markdown document
+library(knitr) # for creating the R Markdown document
+library(here) # for files paths organization
+library(tidyverse) # for data manipulation and visualization
+library(Cairo) # for printing customed police of graphs
+```
+
+We also load our customed `ggplot2` theme for graphs:
+
+```{r}
+# load ggplot customed theme
+source(
+  here::here(
+    "2.scripts",
+    "4.custom_ggplot2_theme",
+    "script_custom_ggplot_theme.R"
+  )
+)
+```
+
+The theme is based on the fantastic [hrbrthemes](https://hrbrmstr.github.io/hrbrthemes/index.html) package. If you do not want to use this theme or are unable to install it because of fonts issues, you can use the `theme_mimimal()` included in the `ggplot2` package.
+
+We finally load the data we use in our analysis:
+
+```{r}
+data <-
+  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+```
+
+We keep patients that were COVID-positive:
+
+```{r}
+data <- data %>%
+  filter(covid == 1) %>%
+  dplyr::select(-covid)
+```
+
+We select patients with non-missing observations for the following variables:
+
+```{r}
+data <- data %>%
+  dplyr::select(
+    dead,
+    sex,
+    age,
+    bmi,
+    diabetes,
+    hbp,
+    active_smoking,
+    copd,
+    cardiac_disease_infarction,
+    renal_failure,
+    cancer,
+    city
+  ) %>%
+  drop_na()
+```      
+      
+There are `r nrow(data)` observations.
+
+# Statistical Analysis
+
+We run a simple logistic model to estimate the association of each patient's characteristic with the probability of dying from the COVID:
+
+```{r}
+data_regression_analysis <- data %>%
+  glm(
+    dead ~  sex +
+      age +
+      bmi +
+      active_smoking +
+      diabetes +
+      hbp +
+      copd +
+      cardiac_disease_infarction +
+      renal_failure +
+      cancer +
+      city,
+    family = "binomial",
+    data = .
+  ) %>%
+  broom::tidy(., conf.int = TRUE) %>%
+  mutate_at(vars(estimate, conf.low, conf.high), ~ exp(.)) %>%
+  slice(2:11) %>%
+  mutate(
+    term = case_when(
+      term == "sexmale" ~ "Sex (Male)",
+      term == "age" ~ "Age (Years)",
+      term == "bmi" ~ "BMI (Kg)",
+      term == "diabetes" ~ "Diabetes (Dummy)",
+      term == "hbp" ~ "HBP (Dummy)",
+      term == "active_smoking" ~ "Active Smoking (Dummy)",
+      term == "copd" ~ "COPD (Dummy)",
+      term == "cardiac_disease_infarction" ~ "Cardiac Disease Infarction (Dummy)",
+      term == "renal_failure" ~ "Renal Failure (Dummy)",
+      term == "cancer" ~ "Cancer (Dummy)"
+    )
+  )
+```
+
+Graph:
+
+```{r, fig.width=15, fig.height=8}
+# make the graph
+graph_logistic_mortality_comorbidities <- data_regression_analysis %>%
+  ggplot(., aes(
+    x = estimate,
+    y = term,
+    xmin = conf.low,
+    xmax = conf.high
+  )) +
+  geom_vline(xintercept = 1) +
+  geom_pointrange(size = 1.2, colour = "deepskyblue3") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  ylab("") + xlab("Odds of Dying from COVID-19") +
+  custom_theme +
+  theme(plot.margin = margin(1, 1, 1,-1, "cm"))
+
+
+# print the graph
+graph_logistic_mortality_comorbidities
+
+# save graph
+ggsave(
+  graph_logistic_mortality_comorbidities,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "1.study_mortality_comorbidities",
+    "graph_logistic_mortality_comorbidities.pdf"
+  ),
+  width = 30,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+Table:
+
+```{r}
+# print the table
+data_regression_analysis %>%
+  select(term, estimate, conf.low, conf.high) %>%
+  mutate_at(vars(estimate:conf.high), ~ round(., 1)) %>%
+  rename(
+    "Variable" = term,
+    "Point Estimate" = estimate,
+    "Lower Bound 95% CI" = conf.low,
+    "Upper Bound 95% CI" = conf.high
+  ) %>%
+  kable(align = c("l", rep("c", 3)))
+```
+
+
+
+
+
+

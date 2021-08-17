@@ -1,0 +1,685 @@
+---
+title: "Exploratory Data Analysis"
+description: |
+  Patients' Health Status and Air Pollution Exposures.
+author:
+  - name: Léo Zabrocki 
+    url: https://www.parisschoolofeconomics.eu/
+    affiliation: Paris School of Economics
+    affiliation_url: https://www.parisschoolofeconomics.eu/
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    keep_md: true
+    toc: true
+    toc_depth: 2
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+# code chunk option
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  layout="l-body-outset",
+  dev = "CairoPNG",
+  dpi = 300
+)
+```
+
+In this script, we explore patients' health data and their air pollution exposure. Should you have any questions or find coding errors, please do not hesitate to reach me at **leo.zabrocki@psemail.eu**.
+
+# Required Packages and Loading Data
+
+### Required Packages
+
+To reproduce exactly the `script_eda.html` document, you first need to have installed:
+
+* the [R](https://www.r-project.org/) programming language on your computer 
+* [RStudio](https://rstudio.com/), an integrated development environment for R, which will allow you to knit the `script_eda.Rmd` file and interact with the R code chunks
+* the [R Markdown](https://rmarkdown.rstudio.com/) package
+* and the [Distill](https://rstudio.github.io/distill/) package which provides the template of this document. 
+
+Once everything is set up, we need to load the following packages:
+
+```{r}
+# load required packages
+library(rmarkdown) # for creating the R Markdown document
+library(knitr) # for creating the R Markdown document
+library(here) # for files paths organization
+library(tidyverse) # for data manipulation and visualization
+library(lubridate) # for manipulating date variables
+library(ggridges) # for ridge density plots
+library(Cairo) # for printing custom police of graphs
+```
+
+We also load our custom `ggplot2` theme for graphs:
+
+```{r}
+# load ggplot custom theme
+source(
+  here::here(
+    "2.scripts",
+    "4.custom_ggplot2_theme",
+    "script_custom_ggplot_theme.R"
+  )
+)
+```
+
+The theme is based on the fantastic [hrbrthemes](https://hrbrmstr.github.io/hrbrthemes/index.html) package. If you do not want to use this theme or are unable to install it because of fonts issues, you can use the `theme_mimimal()` included in the `ggplot2` package.
+
+### Data Loading
+
+We load the data we use in our analysis:
+
+```{r}
+data <-
+  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+```
+
+There are `r nrow(data)` observations and `r ncol(data)` variables. 
+
+# Missing Data
+
+I first display below the number of patients by city:
+
+```{r}
+# make the table
+data_n_obs_city <- data %>%
+  rename(City = city) %>%
+  group_by(City) %>%
+  summarise("Number of Patients" = n())
+
+# print the table
+data_n_obs_city %>%
+  kable(align = c("l", "c"))
+
+# save the table
+write.csv(
+  data_n_obs_city,
+  here::here("3.outputs", "2.tables", "0.eda", "table_n_obs_city.csv")
+)
+```
+
+I then display the proportion of missing data for each variable:
+
+```{r}
+# make the table
+data_missing <- data %>%
+  pivot_longer(
+    cols = c(
+      covid,
+      dead,
+      age,
+      diabetes,
+      active_smoking,
+      hbp,
+      cardiac_disease_infarction,
+      copd,
+      renal_failure,
+      cancer,
+      bmi
+    ),
+    names_to = "Variable",
+    values_to = "value"
+  ) %>%
+  mutate(
+    Variable = case_when(
+      Variable == "covid" ~ "COVID",
+      Variable == "dead" ~ "Dead",
+      Variable == "age" ~ "Age",
+      Variable == "bmi" ~ "BMI",
+      Variable == "active_smoking" ~ "Active Smoking",
+      Variable == "active_past_smoking" ~ "Active or Past Smoking",
+      Variable == "hbp" ~ "HBP",
+      Variable == "diabetes" ~ "Diabetes",
+      Variable == "cardiac_disease_infarction" ~ "Cardiac Disease Infarction",
+      Variable == "copd" ~ "COPD",
+      Variable == "renal_failure" ~ "Renal Failure",
+      Variable == "cancer" ~ "Cancer"
+    )
+  ) %>%
+  group_by(Variable) %>%
+  summarise("Missing (%)" = round(sum(is.na(value)) / n() * 100, 1))
+
+# print the table
+data_missing %>%
+  arrange(-`Missing (%)`) %>%
+  kable(align = c("l", "c"))
+
+# save the table
+write.csv(
+  data_missing,
+  here::here("3.outputs", "2.tables", "0.eda", "table_missing_data.csv")
+)
+```
+
+# Health Status
+
+### Proportion of Dead Patients
+
+We plot the proportion of COVID positive patients who died by city:
+
+```{r, fig.width=10, fig.height=5}
+# make the graph
+graph_dead_city <- data %>%
+  filter(covid == 1) %>%
+  group_by(city) %>%
+  summarise(proportion_dead = mean(dead, na.rm = TRUE) * 100) %>%
+  ggplot(., aes(x = proportion_dead, y = reorder(city, proportion_dead))) +
+  geom_point(size = 6, color = "deepskyblue3") +
+  xlab("Proportion of Dead Patients (%)") + ylab("") +
+  custom_theme +
+  theme(plot.margin = unit(c(1, 1, 1, -1), "cm"))
+
+# print the graph
+graph_dead_city
+
+# save graph
+ggsave(
+  graph_dead_city,
+  filename = here::here("3.outputs", "1.figures", "0.eda", "graph_dead_city.pdf"),
+  width = 30,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+### Characteristics of Patients by City
+
+We plot the characteristics of all COVID positive patients by city:
+
+```{r, fig.width=15, fig.height=10}
+# make the graph
+graph_characteristics_patients <- data %>%
+  filter(covid == 1) %>%
+  pivot_longer(
+    cols = c(
+      age,
+      diabetes,
+      active_smoking,
+      hbp,
+      cardiac_disease_infarction,
+      copd,
+      renal_failure,
+      cancer,
+      bmi
+    ),
+    names_to = "covariate",
+    values_to = "value"
+  ) %>%
+  mutate(
+    covariate = case_when(
+      covariate == "age" ~ "Age",
+      covariate == "diabetes" ~ "Diabetes (%)",
+      covariate == "active_smoking" ~ "Active Smoking (%)",
+      covariate == "hbp" ~ "HBP",
+      covariate == "cardiac_disease_infarction" ~ "Cardiac Disease - Infarction (%)",
+      covariate == "copd" ~ "COPD (%)",
+      covariate == "renal_failure" ~ "Renal Failure (%)",
+      covariate == "cancer" ~ "Cancer (%)",
+      covariate == "bmi" ~ "BMI"
+    )
+  ) %>%
+  group_by(city, covariate) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE)) %>%
+  mutate(mean_value = ifelse(!(covariate %in% c("Age", "BMI")), mean_value *
+                               100, mean_value)) %>%
+  ggplot(., aes(x = mean_value, y = city)) +
+  geom_point(size = 6, colour = "deepskyblue3") +
+  facet_wrap( ~ covariate, scales = "free_x", ncol = 3) +
+  xlab("") + ylab("") +
+  custom_theme +
+  theme(plot.margin = unit(c(1, 1, 1, -1), "cm"))
+
+# print the graph
+graph_characteristics_patients
+
+# save graph
+ggsave(
+  graph_characteristics_patients,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_characteristics_patients.pdf"
+  ),
+  width = 50,
+  height = 40,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+### Characteristics of Dead Patients
+
+We plot the characteristics of all COVID positive patients who died by city:
+
+```{r, fig.width=15, fig.height=10}
+# make the graph
+graph_characteristics_patients_mortality_outcome <- data %>%
+  filter(!is.na(dead)) %>%
+  filter(covid == 1) %>%
+  pivot_longer(
+    cols = c(
+      age,
+      diabetes,
+      active_smoking,
+      hbp,
+      cardiac_disease_infarction,
+      copd,
+      renal_failure,
+      cancer,
+      bmi
+    ),
+    names_to = "covariate",
+    values_to = "value"
+  ) %>%
+  mutate(
+    covariate = case_when(
+      covariate == "age" ~ "Age",
+      covariate == "diabetes" ~ "Diabetes (%)",
+      covariate == "active_smoking" ~ "Active Smoking (%)",
+      covariate == "hbp" ~ "HBP",
+      covariate == "cardiac_disease_infarction" ~ "Cardiac Disease - Infarction (%)",
+      covariate == "copd" ~ "COPD (%)",
+      covariate == "renal_failure" ~ "Renal Failure (%)",
+      covariate == "cancer" ~ "Cancer (%)",
+      covariate == "bmi" ~ "BMI"
+    )
+  ) %>%
+  mutate(dead = ifelse(dead == 1, "Dead", "Alive")) %>%
+  group_by(city, dead, covariate) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE)) %>%
+  mutate(mean_value = ifelse(!(covariate %in% c("Age", "BMI")), mean_value *
+                               100, mean_value)) %>%
+  ggplot(., aes(x = mean_value, y = city)) +
+  geom_line(aes(group = city), colour = "black") +
+  geom_point(aes(colour = dead), size = 6) +
+  scale_colour_manual(values = c("deepskyblue3", "tomato")) +
+  facet_wrap( ~ covariate, scales = "free_x", ncol = 3) +
+  xlab("") + ylab("") +
+  custom_theme +
+  labs(colour = "Status") +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    legend.direction = "horizontal",
+    plot.margin = unit(c(1, 1, 1, -1), "cm")
+  )
+
+# print the graph
+graph_characteristics_patients_mortality_outcome
+
+# save graph
+ggsave(
+  graph_characteristics_patients_mortality_outcome,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_characteristics_patients_mortality_outcome.pdf"
+  ),
+  width = 50,
+  height = 40,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+# Exploring Air Pollution and Weather Exposures
+
+### Mean of Air Pollutants by City
+
+We plot the mean concentration of each pollutant by city:
+
+```{r fig.width=24, fig.height=8}
+# make the graph
+graph_mean_exposure_pollution <- data %>%
+  select(city, mean_2017_2019_no2:mean_2017_2019_so2) %>%
+  rename(
+    "NO2" = mean_2017_2019_no2,
+    "O3" = mean_2017_2019_o3,
+    "PM10" = mean_2017_2019_pm10,
+    "PM2.5" = mean_2017_2019_pm2p5,
+    "SO2" = mean_2017_2019_so2
+  ) %>%
+  pivot_longer(cols = c(NO2:`SO2`),
+               names_to = "pollutant",
+               values_to = "concentration") %>%
+  group_by(city, pollutant) %>%
+  summarise(mean_concentration = mean(concentration)) %>%
+  ggplot(., aes(x = mean_concentration, y = city)) +
+  geom_point(size = 5, color = "deepskyblue3") +
+  facet_wrap( ~ pollutant, scales = "free", nrow = 2) +
+  xlab("Concentrations in (µg/m³)") + ylab("") +
+  custom_theme +
+  theme(plot.margin = unit(c(1, 1, 1, -1), "cm"))
+
+# print the graph
+graph_mean_exposure_pollution
+
+# save graph
+ggsave(
+  graph_mean_exposure_pollution,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_mean_exposure_pollution.pdf"
+  ),
+  width = 40,
+  height = 30,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+### Air Pollutants Density Distributions
+
+We plot the concentration distribution of each pollutant by city:
+
+```{r fig.width=24, fig.height=8}
+# make the graph
+graph_density_pollution_exposure <- data %>%
+  select(city, mean_2017_2019_no2:mean_2017_2019_so2) %>%
+  rename(
+    "NO2" = mean_2017_2019_no2,
+    "O3" = mean_2017_2019_o3,
+    "PM10" = mean_2017_2019_pm10,
+    "PM2.5" = mean_2017_2019_pm2p5,
+    "SO2" = mean_2017_2019_so2
+  ) %>%
+  pivot_longer(cols = c(NO2:`SO2`),
+               names_to = "pollutant",
+               values_to = "concentration") %>%
+  ggplot(., aes(x = concentration, y = city)) +
+  geom_density_ridges(colour = NA,
+                      fill = "deepskyblue3",
+                      alpha = 0.8) +
+  facet_wrap( ~ pollutant, scales = "free", nrow = 1) +
+  xlab("Concentration (µg/m3) ") + ylab("") +
+  custom_theme +
+  theme(plot.margin = unit(c(1, 1, 1, -1), "cm"))
+
+# print the graph
+graph_density_pollution_exposure
+
+# save graph
+ggsave(
+  graph_density_pollution_exposure,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_density_pollution_exposure.pdf"
+  ),
+  width = 70,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+### Weather Parameters Density Distributions
+
+We plot the density distribution of each weather covariate by city:
+
+```{r fig.width=27, fig.height=8}
+# make the graph
+graph_density_exposure_weather <- data %>%
+  select(city,
+         mean_2017_2019_average_temperature:mean_2017_2019_boundary_layer_height) %>%
+  rename(
+    "Average Temperature (°C)" = mean_2017_2019_average_temperature,
+    "Wind Speed (m/s)" = mean_2017_2019_wind_speed,
+    "Boundary Layer Height (m)" = mean_2017_2019_boundary_layer_height,
+    "Relative Humidity (%)" = mean_2017_2019_relative_humidity
+  ) %>%
+  pivot_longer(
+    cols = c(`Average Temperature (°C)`:`Boundary Layer Height (m)`),
+    names_to = "weather_parameter",
+    values_to = "value"
+  ) %>%
+  ggplot(., aes(x = value, y = city)) +
+  geom_density_ridges(colour = NA,
+                      fill = "deepskyblue3",
+                      alpha = 0.8) +
+  facet_wrap(~ weather_parameter, scales = "free", nrow = 1) +
+  xlab("Value") + ylab("") +
+  custom_theme +
+  theme(plot.margin = unit(c(1, 1, 1, -1), "cm"))
+
+# print the graph
+graph_density_exposure_weather
+
+# save graph
+ggsave(
+  graph_density_exposure_weather,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_density_exposure_weather.pdf"
+  ),
+  width = 62,
+  height = 18,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+
+# Air Pollution - Death Relationship
+
+We plot below the average concentration of each pollutant by mortality outcome and city:
+
+```{r fig.width=15, fig.height=7}
+# make the graph
+graph_mortality_mean_exposure <- data %>%
+  filter(!is.na(dead)) %>%
+  filter(covid == 1) %>%
+  rename(
+    "NO2" = mean_2017_2019_no2,
+    "O3" = mean_2017_2019_o3,
+    "PM10" = mean_2017_2019_pm10,
+    "PM2.5" = mean_2017_2019_pm2p5,
+    "SO2" = mean_2017_2019_so2
+  ) %>%
+  pivot_longer(cols = c(NO2:`SO2`),
+               names_to = "pollutant",
+               values_to = "concentration") %>%
+  mutate(dead = ifelse(dead == 1, "Dead", "Alive")) %>%
+  group_by(city, dead, pollutant) %>%
+  summarise(mean_concentration = mean(concentration, na.rm = TRUE)) %>%
+  ggplot(., aes(x = mean_concentration, y = city)) +
+  geom_line(aes(group = city), colour = "black") +
+  geom_point(aes(colour = dead), size = 4) +
+  scale_colour_manual(values = c("deepskyblue3", "tomato")) +
+  facet_wrap( ~ pollutant, scales = "free_x", ncol = 5) +
+  xlab("Concentration (µg/m3)") + ylab("") +
+  custom_theme +
+  labs(colour = "Status") +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    legend.direction = "horizontal",
+    plot.margin = unit(c(1, 1, 1, -1), "cm")
+  )
+
+# print the graph
+graph_mortality_mean_exposure
+
+# save graph
+ggsave(
+  graph_mortality_mean_exposure,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_mortality_mean_exposure.pdf"
+  ),
+  width = 60,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+# Air Pollution - Comorbidities
+
+We plot below the average concentration of each pollutant by co-morbity:
+
+```{r fig.width=20, fig.height=7}
+# make the graph
+graph_pollution_exposure_comorbidites <- data %>%
+  dplyr::select(
+    hbp:diabetes,
+    cardiac_disease_infarction:cancer,
+    mean_2017_2019_no2:mean_2017_2019_so2
+  ) %>%
+  drop_na() %>%
+  mutate_at(vars(hbp:cancer), ~ as.character(.)) %>%
+  pivot_longer(cols = c(hbp:cancer),
+               names_to = "comorbidity",
+               values_to = "value") %>%
+  mutate(
+    comorbidity = case_when(
+      comorbidity == "hbp" ~ "HBP",
+      comorbidity == "diabetes" ~ "Diabetes (%)",
+      comorbidity == "cardiac_disease_infarction" ~ "Cardiac Disease - Infarction (%)",
+      comorbidity == "copd" ~ "COPD (%)",
+      comorbidity == "renal_failure" ~ "Renal Failure (%)",
+      comorbidity == "cancer" ~ "Cancer (%)",
+      comorbidity == "bmi" ~ "BMI"
+    )
+  ) %>%
+  group_by(comorbidity, value) %>%
+  summarise_at(vars(mean_2017_2019_no2:mean_2017_2019_so2), ~ mean(.)) %>%
+  rename(
+    "NO2" = mean_2017_2019_no2,
+    "O3" = mean_2017_2019_o3,
+    "PM10" = mean_2017_2019_pm10,
+    "PM2.5" = mean_2017_2019_pm2p5,
+    "SO2" = mean_2017_2019_so2
+  ) %>%
+  pivot_longer(cols = c(NO2:`SO2`),
+               names_to = "pollutant",
+               values_to = "concentration") %>%
+  mutate(value = ifelse(value == 1, "Has the disease", "Does not have the disease")) %>%
+  ggplot(., aes(x = concentration, y = comorbidity)) +
+  geom_line(aes(group = comorbidity), colour = "black") +
+  geom_point(aes(colour = value), size = 4) +
+  scale_colour_manual(values = c("deepskyblue3", "tomato")) +
+  facet_wrap( ~ pollutant, scales = "free_x", ncol = 5) +
+  xlab("Concentration (µg/m3) ") + ylab("") +
+  custom_theme +
+  labs(colour = "Status") +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    legend.direction = "horizontal",
+    plot.margin = unit(c(1, 1, 1, -1), "cm")
+  )
+
+# print the graph
+graph_pollution_exposure_comorbidites
+
+# save graph
+ggsave(
+  graph_pollution_exposure_comorbidites,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_pollution_exposure_comorbidites.pdf"
+  ),
+  width = 60,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+We plot below the average concentration of each pollutant by co-morbity and city:
+
+```{r fig.width=30, fig.height=30}
+# make the graph
+graph_pollution_exposure_comorbidites_city <- data %>%
+  dplyr::select(
+    city,
+    hbp:diabetes,
+    cardiac_disease_infarction:cancer,
+    mean_2017_2019_no2:mean_2017_2019_so2
+  ) %>%
+  mutate(city = ifelse(city == "La Roche-sur-Yon", "La Roche-\n sur-Yon", city)) %>%
+  drop_na() %>%
+  mutate_at(vars(hbp:cancer), ~ as.character(.)) %>%
+  pivot_longer(cols = c(hbp:cancer),
+               names_to = "comorbidity",
+               values_to = "value") %>%
+  mutate(
+    comorbidity = case_when(
+      comorbidity == "hbp" ~ "HBP",
+      comorbidity == "diabetes" ~ "Diabetes (%)",
+      comorbidity == "cardiac_disease_infarction" ~ "Cardiac Disease - Infarction (%)",
+      comorbidity == "copd" ~ "COPD (%)",
+      comorbidity == "renal_failure" ~ "Renal Failure (%)",
+      comorbidity == "cancer" ~ "Cancer (%)",
+      comorbidity == "bmi" ~ "BMI"
+    )
+  ) %>%
+  group_by(city, comorbidity, value) %>%
+  summarise_at(vars(mean_2017_2019_no2:mean_2017_2019_so2), ~ mean(.)) %>%
+  rename(
+    "NO2" = mean_2017_2019_no2,
+    "O3" = mean_2017_2019_o3,
+    "PM10" = mean_2017_2019_pm10,
+    "PM2.5" = mean_2017_2019_pm2p5,
+    "SO2" = mean_2017_2019_so2
+  ) %>%
+  pivot_longer(cols = c(NO2:`SO2`),
+               names_to = "pollutant",
+               values_to = "concentration") %>%
+  mutate(value = ifelse(value == 1, "Has the disease", "Does not have the disease")) %>%
+  ggplot(., aes(x = concentration, y = comorbidity)) +
+  geom_line(aes(group = comorbidity), colour = "black") +
+  geom_point(aes(colour = value), size = 4) +
+  scale_colour_manual(values = c("deepskyblue3", "tomato")) +
+  facet_grid(city ~ pollutant, scales = "free") +
+  xlab("Concentration (µg/m3) ") + ylab("") +
+  custom_theme +
+  labs(colour = "Status") +
+  theme(
+    legend.position = "top",
+    legend.justification = "left",
+    legend.direction = "horizontal",
+    plot.margin = unit(c(1, 1, 1, -1), "cm")
+  )
+
+# print the graph
+graph_pollution_exposure_comorbidites_city
+
+# save graph
+ggsave(
+  graph_pollution_exposure_comorbidites_city,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "0.eda",
+    "graph_pollution_exposure_comorbidites_city.pdf"
+  ),
+  width = 50,
+  height = 50,
+  units = "cm",
+  device = cairo_pdf
+)
+```

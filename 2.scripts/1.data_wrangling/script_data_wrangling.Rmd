@@ -1,0 +1,605 @@
+---
+title: "Data Wrangling"
+description: |
+  Merging Patients' Data with Air Pollution Exposures.
+author:
+  - name: Léo Zabrocki 
+    url: https://www.parisschoolofeconomics.eu/
+    affiliation: Paris School of Economics
+    affiliation_url: https://www.parisschoolofeconomics.eu/
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    toc: true
+    toc_depth: 2
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+
+This script merges patients' COVID data for Bordeaux, Bruxelles, La Roche-sur-Yon, Nantes, Paris, Reims, Strasbourg, and Tours with their air pollution exposures computed by the Copernicus Atmosphere Monitoring Service (CAMS). Should you have any questions or find coding errors, please do not hesitate to reach me at **leo.zabrocki@psemail.eu**.
+
+# Required Packages
+
+To reproduce exactly the `script_data_wrangling.html` document, you first need to have installed:
+
+* the [R](https://www.r-project.org/) programming language on your computer 
+* [RStudio](https://rstudio.com/), an integrated development environment for R, which will allow you to knit the `script_data_wrangling.Rmd` file and interact with the R code chunks
+* the [R Markdown](https://rmarkdown.rstudio.com/) package
+* and the [Distill](https://rstudio.github.io/distill/) package which provides the template of this document. 
+
+Once everything is set up, we need to load the following packages:
+
+```{r, echo=TRUE, message = FALSE, warning = FALSE}
+# load required packages
+library(rmarkdown) # for creating the R Markdown document
+library(knitr) # for creating the R Markdown document
+library(here) # for files paths organization
+library(tidyverse) # for data manipulation and visualization
+library(data.table) # for loading heavy data
+library(lubridate) # for manipulating date variables
+```
+
+# Loading and Cleaning COVID Data
+
+### Data Loading
+
+We first load the data located in the `1.data\1.covid_data` folder:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# we get the path of each file
+covid_data <-
+  tibble(file = list.files(
+    path = here::here("1.data", "1.covid_data", "2.clean_data"),
+    pattern = ".csv",
+    full.names = T
+  )) %>%
+  # we open each file using a nested data frame structure
+  mutate(data = map(file, ~ fread(.))) %>%
+  # convert all variables to characters
+  mutate(data = map(data, ~ mutate_all(.x, ~ as.character(.)))) %>%
+  # unnest each city data
+  unnest(data) %>%
+  # from the files paths, get the city name
+  mutate(city = basename(file) %>%
+           word(., 1, sep = "\\_")) %>%
+  # drop the file variable
+  select(-file)
+```
+
+### Cleaning the Data
+
+We clean the data:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data <- covid_data %>%
+  # set the name of patients to lower cases and correct labels for bordeaux and bruxelles
+  mutate(patient_id = tolower(patient_id)) %>%
+  mutate(
+    patient_id = ifelse(
+      city == "bordeaux",
+      str_replace_all(patient_id, "b", "bo"),
+      patient_id
+    ) %>%
+      ifelse(city == "bruxelles", str_replace_all(patient_id, "b", "br"), .)
+  ) %>%
+  # label the sex variable
+  mutate(sex = case_when(sex == "1" ~ "male",
+                         sex %in% c(0, 2) ~ "female")) %>%
+  # recode covid variable
+  mutate(
+    covid = case_when(
+      covid == "Positief voor SARS-CoV-2 (COVID-19)" ~ 1,
+      covid == "Negatief voor SARS-CoV-2 (COVID-19)" ~ 0,
+      covid == "0" ~ 0,
+      covid == "1" ~ 1
+    )
+  ) %>%
+  # recode bmi variable
+  mutate(
+    bmi = ifelse(bmi == "ND", NA, bmi) %>%
+      ifelse(bmi == "22,4 en nov19", 22.4, .) %>%
+      ifelse(bmi == "20,4 en oct19", 20.4, .) %>%
+      ifelse(bmi == "14,5 en janv20", 14.5, .) %>%
+      ifelse(bmi == "19,2 en 11/2018", 19.2, .) %>%
+      ifelse(bmi == "18,4 le 09/03/20", 18.4, .) %>%
+      ifelse(bmi == "23,3 le 18/03/20", 23.3, .) %>%
+      ifelse(bmi == "29,5 en 03/2020", 29.5, .) %>%
+      ifelse(bmi == "?", NA, .)
+  ) %>%
+  mutate(bmi = as.numeric(sub(",", ".", bmi, fixed = TRUE))) %>%
+  # compute age for strasbourg patients' id s1-s95
+  mutate(age = ifelse(patient_id %in% paste("s", seq(1:95), sep = ""), 2020 - year(mdy(date_birth)), age)) %>%
+  # drop date_birth variable
+  select(-date_birth) %>%
+  # set the pcr date as a date variable
+  mutate(date_pcr_test = lubridate::mdy(date_pcr_test)) %>%
+  # we have to drop bruxelles patient id 197 because it is duplicated
+  # and we do not know for which patient copernicus computed the air pollution exposure
+  filter(patient_id != "br197")
+```
+
+We check the coding of the `covid` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$covid)
+# type
+typeof(covid_data$covid)
+```
+
+We check the coding of the `dead` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$dead)
+# type
+typeof(covid_data$dead)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$dead <- as.numeric(covid_data$dead)
+```
+
+We check the coding of the `sex` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$sex)
+# type
+typeof(covid_data$sex)
+```
+
+We check the coding of the `age` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$age)
+# type
+typeof(covid_data$age)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$age <- as.numeric(covid_data$age)
+```
+
+We check the coding of the `hbp` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$hbp)
+# type
+typeof(covid_data$hbp)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$hbp <- as.numeric(covid_data$hbp)
+```
+
+We check the coding of the `diabetes` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$diabetes)
+# type
+typeof(covid_data$diabetes)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$diabetes <- as.numeric(covid_data$diabetes)
+```
+
+We check the coding of the `active_smoking` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$active_smoking)
+# type
+typeof(covid_data$active_smoking)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$active_smoking <- as.numeric(covid_data$active_smoking)
+```
+
+We check the coding of the `active_past_smoking` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$active_past_smoking)
+# type
+typeof(covid_data$active_past_smoking)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data <- covid_data %>%
+  mutate(
+    active_past_smoking = ifelse(
+      active_past_smoking %in% c("ancien sevré", "1 sevré", "sevré"),
+      1,
+      active_past_smoking
+    ) %>%
+      as.numeric(.)
+  )
+```
+
+We check the coding of the `cardiac_disease_infarction` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$cardiac_disease_infarction)
+# type
+typeof(covid_data$cardiac_disease_infarction)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$cardiac_disease_infarction <- as.numeric(covid_data$cardiac_disease_infarction)
+```
+
+We check the coding of the `copd` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$copd)
+# type
+typeof(covid_data$copd)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$copd <- as.numeric(covid_data$copd)
+```
+
+We check the coding of the `renal_failure` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$renal_failure)
+# type
+typeof(covid_data$renal_failure)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data$renal_failure <- as.numeric(covid_data$renal_failure)
+```
+
+We check the coding of the `cancer` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# values
+unique(covid_data$cancer)
+# type
+typeof(covid_data$cancer)
+```
+
+We convert the variable to numeric:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data <- covid_data %>%
+  mutate(cancer = ifelse(cancer %in% c("2", "3", "5"), 1, cancer) %>%
+           as.numeric(.))
+```
+
+We check the coding of the `bmi` variable:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# type
+typeof(covid_data$bmi)
+```
+
+### English Translation of Variables
+
+We provide below the translation of French names into English names that we use:
+
+* "nom" ou "code patient": `patient_id`.
+* "sexe": `sex`
+* "age": `age`
+* "décès": `dead`
+* "HTA": `hbp`
+* "diabète": `diabetes`
+* "cardiopathie, cardio ischémique, atcd infarctus": `cardiac_disease_infarction`
+* "BPCO": `copd`
+* "insuffisance rénale chronique": `renal_failure`
+* "Date RT-PCR": `date_pcr_test`
+* "cancers": `cancer`
+* "imc": `bmi`
+* "tabagisme actif": `active_smoking`
+* "tabagisme actif ou ancien": `active_past_smoking`
+
+There are additional variables in Bruxelles data:
+
+* "tabagisme ancien" : `past_smoking`
+* "alcool": `alcohol`
+* "hypercholestérolemie": `hypercholesterolemia`
+* "CVA/TIA": `cva_tia`
+* "mal vasculaire périphérique": `peripheral_vascular_disease`
+* "cockcroft": `cockcroft`
+* "nombre de lobes atteints": `n_affected_lobes`
+* "Score verre dépoli /25": `score_verre_depoli_25`
+* "intubation": `intubation`
+* "soins intensifs": `intensive_care`
+* "durée de séjour": `length_stay`
+* "réhospitalisation": `rehospitalization`     
+
+It is important to note that smoking is not coded in the same maner for Strasbourg data since the variable for smoking (`active_past_smoking`) does not distinguish current from past smoking.
+
+### Selecting Relevant Variables
+
+We select the set of variables that are common to all cities:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# select and reorder relevant variables
+covid_data <- covid_data %>%
+  select(
+    # patient city and id
+    city,
+    patient_id,
+    # covid outcomes
+    date_pcr_test,
+    covid,
+    dead,
+    # patient sex, age, and bmi
+    sex,
+    age,
+    bmi,
+    # patient smoking
+    active_smoking,
+    active_past_smoking,
+    # patient diseases
+    hbp,
+    diabetes,
+    cardiac_disease_infarction,
+    copd,
+    renal_failure,
+    cancer
+  )
+```
+
+The dataset contains `r nrow(covid_data)` observations and `r ncol(covid_data)` variables.
+
+# Loading and Cleaning Air Pollution Data
+
+Copernicus Atmosphere Monitoring Service (CAMS) provided us with two air pollution exposures files (2017-2019 and 2020) for each patient.
+
+### Gathering Air Pollution Data in a Single File
+
+We first gather all individuals files into a unique file and do some data cleaning:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# we get the path of each file
+air_pollution_data <-
+  tibble(file = list.files(
+    path = here::here("1.data", "2.air_pollution_data"),
+    pattern = ".csv",
+    full.names = T
+  )) %>%
+  # we open each file using a nested data frame structure
+  mutate(data = map(file, ~ fread(.))) %>%
+  # we get the patient id from the files' names
+  mutate(patient_id = basename(file) %>%
+           word(., 2, sep = "\\_") %>%
+           tolower(.)) %>%
+  # we drop the "a" letter from patient id as it indicates the exposure of a patient's second adress
+  # we will take the mean of exposures for the two adresses
+  mutate(patient_id = str_remove(patient_id, "a")) %>%
+  # we get the names of cities from the patient id
+  mutate(
+    city = case_when(
+      str_detect(str_sub(
+        patient_id, start = 1, end = 2
+      ), "bo") ~ "bordeaux",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 2
+      ), "br") ~ "bruxelles",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "n") ~ "nantes",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "p") ~ "paris",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "r") ~ "reims",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "s") ~ "strasbourg",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "t") ~ "tours",
+      str_detect(str_sub(
+        patient_id, start = 1, end = 1
+      ), "v") ~ "roche"
+    )
+  ) %>%
+  # we drop files' names
+  select(-file) %>%
+  # we unnest each air pollution data
+  unnest(data) %>%
+  # we rename basetime as date
+  rename(date = basetime) %>%
+  # we set the date variable as date
+  mutate(date = lubridate::ymd(date)) %>%
+  # we create the year variable
+  mutate(year = lubridate::year(date)) %>%
+  # we rename some variables
+  rename(
+    wind_speed = `10ff`,
+    boundary_layer_height = blh,
+    relative_humidity = rh,
+    average_temperature = t2m
+  ) %>%
+  # we reorder the variables
+  select(
+    # patient id and city
+    patient_id,
+    city,
+    # data and year
+    date,
+    year,
+    # pollutant concentrations
+    no2,
+    o3,
+    pm10,
+    pm2p5,
+    so2,
+    # weather variables
+    average_temperature,
+    relative_humidity,
+    wind_speed,
+    boundary_layer_height,
+    uvi,
+    # pollen
+    birch,
+    grass,
+    olive
+  )
+```
+
+We then check if the Copernicus team computed the exposure of all patients:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+covid_data %>%
+  filter(!(patient_id %in% air_pollution_data$patient_id)) %>%
+  pull(patient_id)
+```
+
+We can see that three patients with positive PCR tests and several patients with negative PCR tests in Strasbourg do not have exposure data. We can also check if Copernicus computed the exposure for patients for which we do not have health data:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+air_pollution_data %>%
+  # we drop patients ids which are not in the covid data
+  filter(!(patient_id %in% covid_data$patient_id)) %>%
+  pull(patient_id) %>%
+  unique()
+```
+Copernicus did compute exposure of patients which were removed from the COVID datasets.
+
+### Computing Average Exposures for 2017-2019
+
+We then compute the average exposure for each patient over the 2017-2019 period:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+air_pollution_average_exposure_2017_2019 <- air_pollution_data %>%
+  # group by patient
+  group_by(patient_id) %>%
+  # compute the long-term exposure before the pcr test
+  filter(year < 2020) %>%
+  # compute the mean of air pollution and weather variables
+  summarise_at(vars(no2:boundary_layer_height), ~ mean(., na.rm = TRUE)) %>%
+  # add prefix "mean_" for the relevant variables
+  rename_at(vars(-c(patient_id)), ~ paste0("mean_2017_2019_", .))
+```
+
+### Computing 20 Days Exposures Lags Before the PCR
+
+We also compute the 20 days lags of air pollution and weather exposures before the PCR test:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# create data for the 20 days lags of exposure
+air_pollution_exposure_20_lags <- air_pollution_data %>%
+  # select the 2020 year
+  filter(year == 2020) %>%
+  # merge the air pollution data with patients data
+  left_join(., covid_data[, c("city", "patient_id", "date_pcr_test")], by = c("patient_id", "city")) %>%
+  # compute the differences in days between exposure date and PCR date
+  mutate(lags = date - date_pcr_test) %>%
+  # select the 20 lags
+  filter(lags >= -20 & lags <= 0) %>%
+  # convert lags to positive numbers for better variable names
+  mutate(lags = abs(lags)) %>%
+  # compute the mean of lags for individuals with two adresses/exposures
+  group_by(patient_id, city, date) %>%
+  summarise_all(~ mean(., na.rm = TRUE)) %>%
+  ungroup() %>%
+  # pivot the data to wide format
+  pivot_wider(
+    id_cols = patient_id,
+    names_from = lags,
+    values_from = c(no2:olive),
+    names_sep = "_lag_"
+  )
+```
+
+# Merging the Data
+
+We finally merge the two air pollution datasets we created with patients' Covid data:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# merge covid data with air pollution 20 days lags
+final_data <-
+  left_join(covid_data, air_pollution_exposure_20_lags, by = "patient_id") %>%
+  # then merge with mean exposures over the 2017-2019 period
+  left_join(., air_pollution_average_exposure_2017_2019, by = "patient_id") %>%
+  unnest()
+```
+
+# Last Cleaning Steps
+
+We drop Strasbourg patients with negative PCR tests for which we do not have air pollution exposure data:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+final_data <- final_data %>%
+  filter(!is.na(mean_2017_2019_no2))
+```
+
+We drop patients from Bordeaux as their air pollution exposures appear to be too low to be realistic:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+final_data <- final_data %>%
+  filter(city != "bordeaux")
+```
+
+We drop patients from Strasbourg who were already staying in an hospital:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+final_data <- final_data %>%
+  filter(!(patient_id %in% paste("s", seq(1:106), sep = "")))
+```  
+
+We correctly label cities' names:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+final_data <- final_data %>%
+  mutate(city = str_to_sentence(city),
+         city = ifelse(city == "Roche", "La Roche-sur-Yon", city))
+```  
+  
+We save the final dataset in .rds and .csv formats:
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+# rds format
+saveRDS(final_data,
+        here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+# csv format
+write.csv(final_data,
+          here::here("1.data", "3.data_for_analysis", "data_analysis.csv"))
+```
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,291 @@
+---
+title:  "Comorbodities & Long-Term Air Pollution Exposure"
+description: |
+  Detailled Script.
+author:
+  - name: Léo Zabrocki 
+    url: https://www.parisschoolofeconomics.eu/
+    affiliation: Paris School of Economics
+    affiliation_url: https://www.parisschoolofeconomics.eu/
+date: "`r Sys.Date()`"
+output:
+  distill::distill_article:
+    keep_md: true
+    toc: true
+    toc_depth: 2
+---
+
+<style>
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+# code chunk option
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  layout="l-body-outset",
+  dev = "CairoPNG",
+  dpi = 300
+)
+```
+
+# Required Packages and Loading Data
+
+To reproduce exactly the `script_comorbidites_air_pollution.html` document, you first need to have installed:
+
+* the [R](https://www.r-project.org/) programming language on your computer 
+* [RStudio](https://rstudio.com/), an integrated development environment for R, which will allow you to knit the `script_comorbidites_air_pollution.Rmd` file and interact with the R code chunks
+* the [R Markdown](https://rmarkdown.rstudio.com/) package
+* and the [Distill](https://rstudio.github.io/distill/) package which provides the template of this document. 
+
+Once everything is set up, we need to load the following packages:
+
+```{r, echo=TRUE, message = FALSE, warning = FALSE}
+# load required packages
+library(rmarkdown) # for creating the R Markdown document
+library(knitr) # for creating the R Markdown document
+library(here) # for files paths organization
+library(tidyverse) # for data manipulation and visualization
+library(modelr)     # provides easy pipeline modeling functions
+library(broom)      # helps to tidy up model outputs
+library(lubridate) # for manipulating date variables
+library(Cairo) # for printing customed police of graphs
+```
+
+We also load our custom `ggplot2` theme for graphs:
+
+```{r}
+# load ggplot custom theme
+source(
+  here::here(
+    "2.scripts",
+    "4.custom_ggplot2_theme",
+    "script_custom_ggplot_theme.R"
+  )
+)
+```
+
+The theme is based on the fantastic [hrbrthemes](https://hrbrmstr.github.io/hrbrthemes/index.html) package. If you do not want to use this theme or are unable to install it because of fonts issues, you can use the `theme_mimimal()` included in the `ggplot2` package.
+
+We load the data we use in our analysis:
+
+```{r}
+# load the data
+data <-
+  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+```
+
+# Data Wrangling
+
+We select the relevant variables:
+
+```{r}
+data <- data %>%
+  dplyr::select(
+    city,
+    patient_id,
+    dead:cancer,
+    hbp,
+    mean_2017_2019_no2,
+    mean_2017_2019_o3,
+    mean_2017_2019_pm10,
+    mean_2017_2019_pm2p5,
+    mean_2017_2019_so2
+  )
+```
+
+We change the `sex` variable to numeric:
+
+```{r}
+data <- data %>%
+  mutate(sex = ifelse(sex == "male", 1, 0))
+```
+
+Number of observations by outcome:
+
+```{r}
+# print the table
+data %>%
+  dplyr::select(sex, hbp, diabetes, cardiac_disease_infarction, copd, renal_failure, cancer) %>%
+  summarise_all(~ sum(!is.na(.))) %>%
+  pivot_longer(cols = everything(), names_to = "Comorbidity", values_to = "Number of Non-Missing Observations") %>%
+  arrange(-`Number of Non-Missing Observations`) %>%
+  kable(align = c("l", "c"))
+```
+
+We finally label variables:
+
+```{r}
+data <- data %>%
+  # rename patients' characteristics
+  rename(
+    "Sex" = sex,
+    "HBP" = hbp,
+    "Diabetes" = diabetes,
+    "Cardiac Disease Infarction" = cardiac_disease_infarction,
+    "COPD" = copd,
+    "Renal Failure" = renal_failure,
+    "Cancer" = cancer
+  ) %>%
+  # rename air pollution variables
+  rename(
+    "NO2 Exposure (µg/m³)" = mean_2017_2019_no2,
+    "O3 Exposure (µg/m³)" = mean_2017_2019_o3,
+    "PM10 Exposure (µg/m³)" = mean_2017_2019_pm10,
+    "PM2.5 Exposure (µg/m³)" = mean_2017_2019_pm2p5,
+    "SO2 Exposure (µg/m³)" = mean_2017_2019_so2
+  ) 
+```
+
+# Logistic Regression Analysis
+
+We first run the analysis for all comorbidites but cardiac disease infarction. We run a separate analysis for this comorbidity since no patients in Reims have it.
+
+```{r}
+data_regression_analysis_wo_cdi <- data %>%
+  pivot_longer(
+    cols = c(`NO2 Exposure (µg/m³)`:`SO2 Exposure (µg/m³)`),
+    names_to = "pollutant",
+    values_to = "concentration"
+  ) %>%
+  pivot_longer(
+    cols = c(Sex, HBP:Cancer),
+    names_to = "comorbidities",
+    values_to = "value_comorbidities"
+  ) %>%
+  filter(comorbidities != "Cardiac Disease Infarction") %>%
+  group_by(pollutant, comorbidities) %>%
+  nest()
+
+data_regression_analysis_wo_cdi <-
+  data_regression_analysis_wo_cdi %>%
+  mutate(logistic_model = map(
+    data,
+    ~ glm(value_comorbidities ~ concentration + city, family = "binomial",
+             data = .)
+  ))
+
+# tidy regression ouputs
+data_regression_analysis_wo_cdi <-
+  data_regression_analysis_wo_cdi %>%
+  mutate(logistic_model = map(logistic_model, ~ broom::tidy(., conf.int = TRUE)))
+
+# unnest results
+data_regression_analysis_wo_cdi <-
+  data_regression_analysis_wo_cdi %>%
+  unnest(logistic_model) %>%
+  dplyr::filter(term == "concentration")
+
+# exponentiate
+data_regression_analysis_wo_cdi <-
+  data_regression_analysis_wo_cdi %>%
+  mutate_at(vars(estimate, conf.low, conf.high), ~ exp(.))
+```
+
+We then run the analysis for cardiac disease infarction but we drop patients from Reims:
+
+```{r}
+data_regression_analysis_cdi <- data %>%
+  pivot_longer(
+    cols = c(`NO2 Exposure (µg/m³)`:`SO2 Exposure (µg/m³)`),
+    names_to = "pollutant",
+    values_to = "concentration"
+  ) %>%
+  pivot_longer(
+    cols = c(Sex, HBP:Cancer),
+    names_to = "comorbidities",
+    values_to = "value_comorbidities"
+  ) %>%
+  filter(comorbidities == "Cardiac Disease Infarction" &
+           city != "Reims") %>%
+  group_by(pollutant, comorbidities) %>%
+  nest()
+
+data_regression_analysis_cdi <- data_regression_analysis_cdi %>%
+  mutate(logistic_model = map(
+    data,
+    ~ glm(value_comorbidities ~ concentration + city, family = "binomial",
+             data = .)
+  ))
+
+# tidy regression ouputs
+data_regression_analysis_cdi <- data_regression_analysis_cdi %>%
+  mutate(logistic_model = map(logistic_model, ~ broom::tidy(., conf.int = TRUE)))
+
+# unnest results
+data_regression_analysis_cdi <- data_regression_analysis_cdi %>%
+  unnest(logistic_model) %>%
+  dplyr::filter(term == "concentration")
+
+# exponentiate
+data_regression_analysis_cdi <- data_regression_analysis_cdi %>%
+  mutate_at(vars(estimate, conf.low, conf.high), ~ exp(.))
+```
+
+We append the two analyses:
+
+```{r}
+data_regression_analysis <- bind_rows(data_regression_analysis_wo_cdi, data_regression_analysis_cdi)
+```
+
+Graph:
+
+```{r, fig.width=40, fig.height=10, warning = FALSE, dev = "CairoPNG"}
+# make the graph
+graph_analysis_comorbidities_air_pollution <-
+  data_regression_analysis %>%
+  ggplot(., aes(
+    x = estimate,
+    y = pollutant,
+    xmin = conf.low,
+    xmax = conf.high
+  )) +
+  geom_vline(xintercept = 1) +
+  geom_pointrange(size = 1.2, colour = "deepskyblue3") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 5)) +
+  facet_wrap(~ comorbidities , nrow = 1) +
+  ylab("") + xlab("Odds of Having the Comorbidity") +
+  custom_theme +
+  theme(plot.margin = margin(1, 1, 1,-1, "cm"))
+
+
+# print the graph
+graph_analysis_comorbidities_air_pollution
+
+# save graph
+ggsave(
+  graph_analysis_comorbidities_air_pollution,
+  filename = here::here(
+    "3.outputs",
+    "1.figures",
+    "2.study_comorbidites_long_term_air_pollution",
+    "graph_analysis_comorbidities_air_pollution.pdf"
+  ),
+  width = 50,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf
+)
+```
+
+
+Table:
+
+```{r}
+# print the table
+data_regression_analysis %>%
+  dplyr::select(pollutant, comorbidities, estimate, conf.low, conf.high) %>%
+  mutate_at(vars(estimate:conf.high), ~ round(., 1)) %>%
+  rename(
+    "Pollutant" = pollutant,
+    "Comorbodities" = comorbidities,
+    "Point Estimate" = estimate,
+    "Lower Bound 95% CI" = conf.low,
+    "Upper Bound 95% CI" = conf.high
+  ) %>%
+  kable(align = c("l", "l", rep("c", 3)))
+```
+
