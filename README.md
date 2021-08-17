@@ -1,5 +1,10 @@
 # Individual and Environmental Risk Factors for COVID-19 Mortality in Elderly
 
+<style>
+body {
+text-align: justify}
+</style>
+
 This repo provides all the necessary R codes to reproduce the analysis of the paper entitled "Individual and Environmental Risk Factors for COVID-19 Mortality in Elderly". Due to statistical confidentiality, the data used in the project could not be shared. Should you have any questions or find coding errors, please do not hesistate to reach me at leo.zabrocki[at]psemail.eu.
 
 The repo is organized as follows:
