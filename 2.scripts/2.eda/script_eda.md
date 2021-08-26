@@ -7,7 +7,7 @@ author:
     url: https://www.parisschoolofeconomics.eu/
     affiliation: Paris School of Economics
     affiliation_url: https://www.parisschoolofeconomics.eu/
-date: "2021-08-17"
+date: "2021-08-26"
 output:
   distill::distill_article:
     keep_md: true
@@ -77,13 +77,14 @@ We load the data we use in our analysis:
 
 <div class="layout-chunk" data-layout="l-body-outset">
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='va'>data</span> <span class='op'>&lt;-</span>
-  <span class='fu'><a href='https://rdrr.io/r/base/readRDS.html'>readRDS</a></span><span class='op'>(</span><span class='fu'>here</span><span class='fu'>::</span><span class='fu'><a href='https://here.r-lib.org//reference/here.html'>here</a></span><span class='op'>(</span><span class='st'>"1.data"</span>, <span class='st'>"3.data_for_analysis"</span>, <span class='st'>"data_analysis.rds"</span><span class='op'>)</span><span class='op'>)</span>
+  <span class='fu'><a href='https://rdrr.io/r/base/readRDS.html'>readRDS</a></span><span class='op'>(</span><span class='fu'>here</span><span class='fu'>::</span><span class='fu'><a href='https://here.r-lib.org//reference/here.html'>here</a></span><span class='op'>(</span><span class='st'>"1.data"</span>, <span class='st'>"3.data_for_analysis"</span>, <span class='st'>"data_analysis.rds"</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
+  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>covid</span> <span class='op'>==</span> <span class='fl'>1</span><span class='op'>)</span>
 </code></pre></div>
 
 </div>
 
 
-There are 660 observations and 298 variables. 
+There are 501 observations and 298 variables. 
 
 # Missing Data
 
@@ -92,6 +93,7 @@ I first display below the number of patients by city:
 <div class="layout-chunk" data-layout="l-body-outset">
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># make the table</span>
 <span class='va'>data_n_obs_city</span> <span class='op'>&lt;-</span> <span class='va'>data</span> <span class='op'>%&gt;%</span>
+  
   <span class='fu'>rename</span><span class='op'>(</span>City <span class='op'>=</span> <span class='va'>city</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>group_by</span><span class='op'>(</span><span class='va'>City</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>summarise</span><span class='op'>(</span><span class='st'>"Number of Patients"</span> <span class='op'>=</span> <span class='fu'>n</span><span class='op'>(</span><span class='op'>)</span><span class='op'>)</span>
@@ -104,12 +106,12 @@ I first display below the number of patients by city:
 
 |City             | Number of Patients |
 |:----------------|:------------------:|
-|Bruxelles        |        199         |
+|Bruxelles        |        100         |
 |La Roche-sur-Yon |         61         |
-|Nantes           |        122         |
+|Nantes           |         95         |
 |Paris            |         91         |
 |Reims            |         21         |
-|Strasbourg       |        112         |
+|Strasbourg       |         79         |
 |Tours            |         54         |
 
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># save the table</span>
@@ -172,17 +174,17 @@ I then display the proportion of missing data for each variable:
 
 |Variable                   | Missing (%) |
 |:--------------------------|:-----------:|
-|Active Smoking             |    27.6     |
-|BMI                        |    25.9     |
-|Cardiac Disease Infarction |     5.0     |
-|Age                        |     4.8     |
-|COPD                       |     0.3     |
-|Dead                       |     0.3     |
-|Diabetes                   |     0.3     |
-|HBP                        |     0.3     |
+|BMI                        |    28.1     |
+|Active Smoking             |    27.9     |
+|COPD                       |     0.4     |
+|Diabetes                   |     0.4     |
+|HBP                        |     0.4     |
 |Cancer                     |     0.2     |
-|Renal Failure              |     0.2     |
+|Dead                       |     0.2     |
+|Age                        |     0.0     |
+|Cardiac Disease Infarction |     0.0     |
 |COVID                      |     0.0     |
+|Renal Failure              |     0.0     |
 
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># save the table</span>
 <span class='fu'><a href='https://rdrr.io/r/utils/write.table.html'>write.csv</a></span><span class='op'>(</span>
@@ -203,7 +205,6 @@ We plot the proportion of COVID positive patients who died by city:
 <div class="layout-chunk" data-layout="l-body-outset">
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># make the graph</span>
 <span class='va'>graph_dead_city</span> <span class='op'>&lt;-</span> <span class='va'>data</span> <span class='op'>%&gt;%</span>
-  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>covid</span> <span class='op'>==</span> <span class='fl'>1</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>group_by</span><span class='op'>(</span><span class='va'>city</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>summarise</span><span class='op'>(</span>proportion_dead <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/mean.html'>mean</a></span><span class='op'>(</span><span class='va'>dead</span>, na.rm <span class='op'>=</span> <span class='cn'>TRUE</span><span class='op'>)</span> <span class='op'>*</span> <span class='fl'>100</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>ggplot</span><span class='op'>(</span><span class='va'>.</span>, <span class='fu'>aes</span><span class='op'>(</span>x <span class='op'>=</span> <span class='va'>proportion_dead</span>, y <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/stats/reorder.factor.html'>reorder</a></span><span class='op'>(</span><span class='va'>city</span>, <span class='va'>proportion_dead</span><span class='op'>)</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>+</span>
@@ -236,7 +237,6 @@ We plot the characteristics of all COVID positive patients by city:
 <div class="layout-chunk" data-layout="l-body-outset">
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># make the graph</span>
 <span class='va'>graph_characteristics_patients</span> <span class='op'>&lt;-</span> <span class='va'>data</span> <span class='op'>%&gt;%</span>
-  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>covid</span> <span class='op'>==</span> <span class='fl'>1</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>pivot_longer</span><span class='op'>(</span>
     cols <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
       <span class='va'>age</span>,
@@ -306,7 +306,6 @@ We plot the characteristics of all COVID positive patients who died by city:
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># make the graph</span>
 <span class='va'>graph_characteristics_patients_mortality_outcome</span> <span class='op'>&lt;-</span> <span class='va'>data</span> <span class='op'>%&gt;%</span>
   <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='op'>!</span><span class='fu'><a href='https://rdrr.io/r/base/NA.html'>is.na</a></span><span class='op'>(</span><span class='va'>dead</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
-  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>covid</span> <span class='op'>==</span> <span class='fl'>1</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>pivot_longer</span><span class='op'>(</span>
     cols <span class='op'>=</span> <span class='fu'><a href='https://rdrr.io/r/base/c.html'>c</a></span><span class='op'>(</span>
       <span class='va'>age</span>,
@@ -537,7 +536,6 @@ We plot below the average concentration of each pollutant by mortality outcome a
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class='co'># make the graph</span>
 <span class='va'>graph_mortality_mean_exposure</span> <span class='op'>&lt;-</span> <span class='va'>data</span> <span class='op'>%&gt;%</span>
   <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='op'>!</span><span class='fu'><a href='https://rdrr.io/r/base/NA.html'>is.na</a></span><span class='op'>(</span><span class='va'>dead</span><span class='op'>)</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
-  <span class='fu'><a href='https://rdrr.io/r/stats/filter.html'>filter</a></span><span class='op'>(</span><span class='va'>covid</span> <span class='op'>==</span> <span class='fl'>1</span><span class='op'>)</span> <span class='op'>%&gt;%</span>
   <span class='fu'>rename</span><span class='op'>(</span>
     <span class='st'>"NO2"</span> <span class='op'>=</span> <span class='va'>mean_2017_2019_no2</span>,
     <span class='st'>"O3"</span> <span class='op'>=</span> <span class='va'>mean_2017_2019_o3</span>,

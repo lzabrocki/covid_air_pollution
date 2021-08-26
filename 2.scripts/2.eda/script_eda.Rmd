@@ -81,7 +81,8 @@ We load the data we use in our analysis:
 
 ```{r}
 data <-
-  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds"))
+  readRDS(here::here("1.data", "3.data_for_analysis", "data_analysis.rds")) %>%
+  filter(covid == 1)
 ```
 
 There are `r nrow(data)` observations and `r ncol(data)` variables. 
@@ -93,6 +94,7 @@ I first display below the number of patients by city:
 ```{r}
 # make the table
 data_n_obs_city <- data %>%
+  
   rename(City = city) %>%
   group_by(City) %>%
   summarise("Number of Patients" = n())
@@ -170,7 +172,6 @@ We plot the proportion of COVID positive patients who died by city:
 ```{r, fig.width=10, fig.height=5}
 # make the graph
 graph_dead_city <- data %>%
-  filter(covid == 1) %>%
   group_by(city) %>%
   summarise(proportion_dead = mean(dead, na.rm = TRUE) * 100) %>%
   ggplot(., aes(x = proportion_dead, y = reorder(city, proportion_dead))) +
@@ -200,7 +201,6 @@ We plot the characteristics of all COVID positive patients by city:
 ```{r, fig.width=15, fig.height=10}
 # make the graph
 graph_characteristics_patients <- data %>%
-  filter(covid == 1) %>%
   pivot_longer(
     cols = c(
       age,
@@ -267,7 +267,6 @@ We plot the characteristics of all COVID positive patients who died by city:
 # make the graph
 graph_characteristics_patients_mortality_outcome <- data %>%
   filter(!is.na(dead)) %>%
-  filter(covid == 1) %>%
   pivot_longer(
     cols = c(
       age,
@@ -486,7 +485,6 @@ We plot below the average concentration of each pollutant by mortality outcome a
 # make the graph
 graph_mortality_mean_exposure <- data %>%
   filter(!is.na(dead)) %>%
-  filter(covid == 1) %>%
   rename(
     "NO2" = mean_2017_2019_no2,
     "O3" = mean_2017_2019_o3,
